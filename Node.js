@@ -1,11 +1,16 @@
+// index.js
 const express = require("express");
 const bodyParser = require("body-parser");
-const app = express();
+const axios = require("axios");
 require("dotenv").config();
 
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-
+const app = express();
 app.use(bodyParser.json());
+
+// Read tokens from environment variables
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // ✅ Webhook verification
 app.get("/webhook", (req, res) => {
@@ -23,29 +28,51 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// ✅ Handling messages
-app.post("/webhook", (req, res) => {
-  let body = req.body;
+// ✅ Handle incoming messages
+app.post("/webhook", async (req, res) => {
+  const body = req.body;
   console.log("Incoming message:", JSON.stringify(body, null, 2));
 
   if (body.object) {
-    if (
-      body.entry &&
-      body.entry[0].changes &&
-      body.entry[0].changes[0].value.messages
-    ) {
-      let phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
-      let from = body.entry[0].changes[0].value.messages[0].from;
-      let msg_body = body.entry[0].changes[0].value.messages[0].text.body;
+    body.entry.forEach(entry => {
+      entry.changes.forEach(async change => {
+        const message = change.value.messages?.[0];
+        if (message) {
+          const from = message.from; // sender's number
+          const text = message.text?.body || "";
 
-      console.log(`From: ${from}, Message: ${msg_body}`);
-    }
+          console.log(`From: ${from}, Message: ${text}`);
+
+          // Send a reply
+          try {
+            await axios.post(
+              `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
+              {
+                messaging_product: "whatsapp",
+                to: from,
+                text: { body: `You said: ${text}` },
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+                  "Content-Type": "application/json",
+                },
+              }
+            );
+            console.log("Reply sent successfully");
+          } catch (error) {
+            console.error("Error sending reply:", error.response?.data || error.message);
+          }
+        }
+      });
+    });
+
     res.sendStatus(200);
   } else {
     res.sendStatus(404);
   }
 });
 
-// ✅ Use Render-assigned PORT
+// ✅ Use Render-assigned port
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
